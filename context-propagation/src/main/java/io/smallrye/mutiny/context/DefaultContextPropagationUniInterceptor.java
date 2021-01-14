@@ -1,18 +1,18 @@
 package io.smallrye.mutiny.context;
 
-import org.eclipse.microprofile.context.ThreadContext;
-import org.eclipse.microprofile.context.spi.ContextManagerProvider;
+import io.smallrye.context.SmallRyeContextManagerProvider;
+import io.smallrye.context.SmallRyeThreadContext;
 
 /**
  * Provides context propagation to Uni types.
  */
 public class DefaultContextPropagationUniInterceptor extends ContextPropagationUniInterceptor {
 
-    static final ThreadContext THREAD_CONTEXT = ContextManagerProvider.instance().getContextManager()
+    static final SmallRyeThreadContext THREAD_CONTEXT = SmallRyeContextManagerProvider.instance().getContextManager()
             .newThreadContextBuilder().build();
 
     @Override
-    protected ThreadContext getThreadContext() {
+    protected SmallRyeThreadContext getThreadContext() {
         return THREAD_CONTEXT;
     }
 }

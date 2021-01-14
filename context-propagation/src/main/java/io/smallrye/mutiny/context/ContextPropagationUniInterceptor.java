@@ -1,9 +1,6 @@
 package io.smallrye.mutiny.context;
 
-import java.util.concurrent.Executor;
-
-import org.eclipse.microprofile.context.ThreadContext;
-
+import io.smallrye.context.SmallRyeThreadContext;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.infrastructure.UniInterceptor;
 import io.smallrye.mutiny.operators.AbstractUni;
@@ -18,33 +15,55 @@ public abstract class ContextPropagationUniInterceptor implements UniInterceptor
 
     @Override
     public <T> UniSubscriber<? super T> onSubscription(Uni<T> instance, UniSubscriber<? super T> subscriber) {
-        Executor executor = getThreadContext().currentContextExecutor();
+        SmallRyeThreadContext threadContext = getThreadContext();
+        Object[] context = threadContext.captureContext();
         return new UniSubscriber<T>() {
 
             @Override
             public void onSubscribe(UniSubscription subscription) {
-                executor.execute(() -> subscriber.onSubscribe(subscription));
+                Object[] moved = threadContext.applyContext(context);
+                try {
+                    subscriber.onSubscribe(subscription);
+                } finally {
+                    threadContext.restoreContext(context, moved);
+                }
             }
 
             @Override
             public void onItem(T item) {
-                executor.execute(() -> subscriber.onItem(item));
+                Object[] moved = threadContext.applyContext(context);
+                try {
+                    subscriber.onItem(item);
+                } finally {
+                    threadContext.restoreContext(context, moved);
+                }
             }
 
             @Override
             public void onFailure(Throwable failure) {
-                executor.execute(() -> subscriber.onFailure(failure));
+                Object[] moved = threadContext.applyContext(context);
+                try {
+                    subscriber.onFailure(failure);
+                } finally {
+                    threadContext.restoreContext(context, moved);
+                }
             }
         };
     }
 
     @Override
     public <T> Uni<T> onUniCreation(Uni<T> uni) {
-        Executor executor = getThreadContext().currentContextExecutor();
+        SmallRyeThreadContext threadContext = getThreadContext();
+        Object[] context = threadContext.captureContext();
         return new AbstractUni<T>() {
             @Override
             protected void subscribing(UniSubscriber<? super T> subscriber) {
-                executor.execute(() -> AbstractUni.subscribe(uni, subscriber));
+                Object[] moved = threadContext.applyContext(context);
+                try {
+                    AbstractUni.subscribe(uni, subscriber);
+                } finally {
+                    threadContext.restoreContext(context, moved);
+                }
             }
         };
     }
@@ -56,5 +75,5 @@ public abstract class ContextPropagationUniInterceptor implements UniInterceptor
      * @return the ThreadContext
      * @see DefaultContextPropagationUniInterceptor#getThreadContext()
      */
-    protected abstract ThreadContext getThreadContext();
+    protected abstract SmallRyeThreadContext getThreadContext();
 }

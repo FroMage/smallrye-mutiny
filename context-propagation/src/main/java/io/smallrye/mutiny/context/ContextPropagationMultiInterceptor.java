@@ -1,13 +1,12 @@
 package io.smallrye.mutiny.context;
 
 import java.util.Objects;
-import java.util.concurrent.Executor;
 
-import org.eclipse.microprofile.context.ThreadContext;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
+import io.smallrye.context.SmallRyeThreadContext;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.helpers.StrictMultiSubscriber;
 import io.smallrye.mutiny.infrastructure.MultiInterceptor;
@@ -22,14 +21,12 @@ public abstract class ContextPropagationMultiInterceptor implements MultiInterce
 
     @Override
     public <T> Subscriber<? super T> onSubscription(Publisher<? extends T> instance, Subscriber<? super T> subscriber) {
-        Executor executor = getThreadContext().currentContextExecutor();
-        return new ContextPropagationSubscriber<>(executor, subscriber);
+        return new ContextPropagationSubscriber<>(getThreadContext(), subscriber);
     }
 
     @Override
     public <T> Multi<T> onMultiCreation(Multi<T> multi) {
-        Executor executor = getThreadContext().currentContextExecutor();
-        return new ContextPropagationMulti<>(executor, multi);
+        return new ContextPropagationMulti<>(getThreadContext(), multi);
     }
 
     /**
@@ -39,65 +36,89 @@ public abstract class ContextPropagationMultiInterceptor implements MultiInterce
      * @return the ThreadContext
      * @see DefaultContextPropagationMultiInterceptor#getThreadContext()
      */
-    protected abstract ThreadContext getThreadContext();
+    protected abstract SmallRyeThreadContext getThreadContext();
 
     private static class ContextPropagationMulti<T> extends AbstractMulti<T> {
 
-        private final Executor executor;
         private final Multi<T> multi;
+        private final SmallRyeThreadContext threadContext;
+        private final Object[] context;
 
-        public ContextPropagationMulti(Executor executor, Multi<T> multi) {
-            this.executor = executor;
+        public ContextPropagationMulti(SmallRyeThreadContext threadContext, Multi<T> multi) {
+            this.threadContext = threadContext;
+            this.context = threadContext.captureContext();
             this.multi = multi;
         }
 
         @Override
         public void subscribe(Subscriber<? super T> subscriber) {
             Objects.requireNonNull(subscriber); // Required by reactive streams TCK
-            executor.execute(new Runnable() {
-                @Override
-                public void run() {
-                    if (subscriber instanceof MultiSubscriber) {
-                        multi.subscribe(subscriber);
-                    } else {
-                        multi.subscribe(new StrictMultiSubscriber<>(subscriber));
-                    }
+            Object[] moved = threadContext.applyContext(context);
+            try {
+                if (subscriber instanceof MultiSubscriber) {
+                    multi.subscribe(subscriber);
+                } else {
+                    multi.subscribe(new StrictMultiSubscriber<>(subscriber));
                 }
-            });
+            } finally {
+                threadContext.restoreContext(context, moved);
+            }
         }
     }
 
     @SuppressWarnings({ "ReactiveStreamsSubscriberImplementation" })
     public static class ContextPropagationSubscriber<T> implements Subscriber<T> {
 
-        private final Executor executor;
         private final Subscriber<? super T> subscriber;
+        private final SmallRyeThreadContext threadContext;
+        private final Object[] context;
 
-        public ContextPropagationSubscriber(Executor executor, Subscriber<? super T> subscriber) {
-            this.executor = executor;
+        public ContextPropagationSubscriber(SmallRyeThreadContext threadContext, Subscriber<? super T> subscriber) {
+            this.threadContext = threadContext;
+            this.context = threadContext.captureContext();
             this.subscriber = subscriber;
         }
 
         @Override
         public void onSubscribe(Subscription subscription) {
-            executor.execute(() -> subscriber.onSubscribe(subscription));
+            Object[] moved = threadContext.applyContext(context);
+            try {
+                subscriber.onSubscribe(subscription);
+            } finally {
+                threadContext.restoreContext(context, moved);
+            }
         }
 
         @Override
         public void onNext(T item) {
             Objects.requireNonNull(item);
-            executor.execute(() -> subscriber.onNext(item));
+            Object[] moved = threadContext.applyContext(context);
+            try {
+                subscriber.onNext(item);
+            } finally {
+                threadContext.restoreContext(context, moved);
+            }
         }
 
         @Override
         public void onError(Throwable failure) {
             Objects.requireNonNull(failure);
-            executor.execute(() -> subscriber.onError(failure));
+            Object[] moved = threadContext.applyContext(context);
+            try {
+                subscriber.onError(failure);
+            } finally {
+                threadContext.restoreContext(context, moved);
+            }
         }
 
         @Override
         public void onComplete() {
-            executor.execute(subscriber::onComplete);
+            Object[] moved = threadContext.applyContext(context);
+            try {
+                subscriber.onComplete();
+            } finally {
+                threadContext.restoreContext(context, moved);
+            }
         }
     }
 }
